@@ -1,0 +1,27 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: petclinic-ingress
+  annotations:
+    # Opcional: Configuración específica para Traefik si fuera necesaria
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+spec:
+  rules:
+  - http:
+      paths:
+      # Regla 1: Todo lo que empiece por /vets va al nuevo servicio
+      - path: /vets.html
+        pathType: Prefix
+        backend:
+          service:
+            name: vets-service
+            port:
+              number: 80
+      # Regla 2: El resto va al monolito original
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: petclinic-service
+            port:
+              number: 80

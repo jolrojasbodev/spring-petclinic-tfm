@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jenkins
+  namespace: jenkins
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: jenkins
+  template:
+    metadata:
+      labels:
+        app: jenkins
+    spec:
+      # Usamos 'securityContext' para que Jenkins pueda escribir en el volumen
+      securityContext:
+        fsGroup: 1000 
+        runAsUser: 1000
+      containers:
+      - name: jenkins
+        image: jenkins/jenkins:lts
+        ports:
+        - containerPort: 8080
+        - containerPort: 50000
+        volumeMounts:
+        - name: jenkins-home
+          mountPath: /var/jenkins_home
+      volumes:
+      - name: jenkins-home
+        persistentVolumeClaim:
+          claimName: jenkins-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jenkins-service
+  namespace: jenkins
+spec:
+  type: NodePort
+  selector:
+    app: jenkins
+  ports:
+  - name: http          # Nombre requerido por K8s al usar multipuerto
+    port: 8080
+    targetPort: 8080
+    nodePort: 30000     # Puerto fijo para acceder a Jenkins
+  - name: agent         # Puerto para agentes esclavos JNLP
+    port: 50000
+    targetPort: 50000
