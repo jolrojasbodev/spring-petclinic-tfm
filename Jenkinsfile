@@ -11,6 +11,10 @@ spec:
     command:
     - sleep
     - infinity
+    resources:
+      requests:
+        memory: "2Gi"
+        ephemeral-storage: "2Gi"  // Aumentar el almacenamiento temporal
   - name: kubectl
     image: bitnami/kubectl:latest
     command:
