@@ -8,18 +8,14 @@ spec:
   containers:
   - name: maven
     image: maven:3.8.5-openjdk-17
-    command:
-    - sleep
-    - infinity
+    command: ["/bin/bash", "-c", "tail -f /dev/null"] // Comando estable para mantener el agente vivo
     resources:
       requests:
         memory: "2Gi"
         ephemeral-storage: "2Gi"
   - name: kubectl
     image: bitnami/kubectl:latest
-    command:
-    - sleep
-    - infinity
+    command: ["/bin/bash", "-c", "tail -f /dev/null"] // Comando estable para mantener el agente vivo
 '''
         }
     }
