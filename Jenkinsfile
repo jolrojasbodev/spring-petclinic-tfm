@@ -14,7 +14,7 @@ spec:
     resources:
       requests:
         memory: "2Gi"
-        ephemeral-storage: "2Gi"  // Aumentar el almacenamiento temporal
+        ephemeral-storage: "2Gi"
   - name: kubectl
     image: bitnami/kubectl:latest
     command:
