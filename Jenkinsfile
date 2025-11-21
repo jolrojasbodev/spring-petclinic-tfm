@@ -11,14 +11,6 @@ spec:
     command:
     - sleep
     - infinity
-  - name: kaniko
-    image: gcr.io/kaniko-project/executor:debug
-    command:
-    - sleep
-    - infinity
-    volumeMounts:
-    - name: registry-creds
-      mountPath: /kaniko/.docker
   - name: kubectl
     image: bitnami/kubectl:latest
     command:
@@ -32,8 +24,7 @@ spec:
             steps {
                 git branch: 'main',
                     credentialsId: 'github-credentials',
-                    url: '[https://github.com/TU_USUARIO/spring-petclinic.git](https://github.com/TU_USUARIO/spring-petclinic.git)' 
-                // ¡CAMBIA TU_USUARIO POR TU USUARIO REAL DE GITHUB!
+                    url: 'https://github.com/jolrojasbodev/spring-petclinic-tfm.git' 
             }
         }
         
@@ -44,18 +35,14 @@ spec:
                 }
             }
         }
-
-        // Nota: Para la construcción de Docker en un entorno K3s local sin Registry externo,
-        // la estrategia más sencilla para el TFM es saltar este paso en el Pipeline automático
-        // y enfocarnos en la Integración Continua (Build & Test).
-        // El despliegue continuo requeriría configurar un Registry local inseguro,
-        // lo cual añade complejidad extra.
         
         stage('Deploy to Dev') {
             steps {
                 container('kubectl') {
-                    // Aquí aplicamos los manifiestos que ya creamos
+                    // Aplicamos el manifiesto del monolito para el CD
                     sh 'kubectl apply -f k8s-manifests/petclinic-deployment.yaml'
+                    sh 'kubectl apply -f k8s-manifests/vets-deployment.yaml'
+                    sh 'kubectl apply -f k8s-manifests/petclinic-ingress.yaml'
                 }
             }
         }
