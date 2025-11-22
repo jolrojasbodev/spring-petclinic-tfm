@@ -1,7 +1,7 @@
 pipeline {
     agent {
         kubernetes {
-            // YAML puro para control total
+            // [FIX V3] Recursos MINIMALISTAS para evitar OOM (Out Of Memory) en la VM de 4GB
             yaml '''
 apiVersion: v1
 kind: Pod
@@ -10,11 +10,14 @@ metadata:
     app: jenkins-agent
 spec:
   containers:
-  # [FIX V2] Definimos explícitamente el agente JNLP para usar la imagen local
   - name: jnlp
     image: jenkins/inbound-agent:latest
     imagePullPolicy: IfNotPresent
     tty: true
+    resources:
+      requests:
+        memory: "128Mi" 
+        cpu: "100m"
     volumeMounts:
     - name: workspace-volume
       mountPath: /home/jenkins/agent
@@ -27,13 +30,12 @@ spec:
     imagePullPolicy: IfNotPresent
     resources:
       requests:
-        memory: "512Mi" 
-        cpu: "500m"
-        ephemeral-storage: "1Gi"
+        # [CRÍTICO] Bajamos esto al mínimo porque solo vamos a hacer "echo"
+        # En producción real necesitaremos más, pero para validar conectividad esto basta.
+        memory: "64Mi" 
+        cpu: "50m"
       limits:
-        memory: "1Gi"
-        cpu: "1000m"
-        ephemeral-storage: "2Gi"
+        memory: "256Mi"
         
   - name: kubectl
     image: bitnami/kubectl:latest
@@ -43,11 +45,10 @@ spec:
     imagePullPolicy: IfNotPresent
     resources:
       requests:
-        memory: "128Mi"
-        cpu: "100m"
+        memory: "64Mi"
+        cpu: "50m"
       limits:
-        memory: "256Mi"
-        cpu: "200m"
+        memory: "128Mi"
 '''
         }
     }
@@ -65,9 +66,7 @@ spec:
         stage('Build & Test') {
             steps {
                 container('maven') {
-                    echo "⏩ SKIPPING BUILD: Enfocando prueba en despliegue Kubernetes..."
-                    // sh 'chmod +x mvnw'
-                    // sh './mvnw clean package -DskipTests'
+                    echo "⏩ SKIPPING BUILD: Modo Ahorro de Energía (Low Memory Check)"
                 }
             }
         }
@@ -76,7 +75,6 @@ spec:
             steps {
                 container('kubectl') {
                     echo "🚀 Iniciando prueba de despliegue en K3s..."
-                    
                     sh 'kubectl get nodes'
                     
                     // Aplicamos manifiestos
@@ -85,7 +83,7 @@ spec:
                     sh 'kubectl apply -f k8s-manifests/vets-deployment.yaml'
                     sh 'kubectl apply -f k8s-manifests/petclinic-ingress.yaml'
                     
-                    // Forzamos reinicio
+                    // Reinicio
                     sh 'kubectl rollout restart deployment/petclinic'
                     sh 'kubectl rollout restart deployment/vets-service'
                 }
@@ -95,10 +93,10 @@ spec:
     
     post {
         success {
-            echo '✅ PRUEBA EXITOSA: El agente Kubernetes (JNLP + Kubectl) funciona correctamente.'
+            echo '✅ PRUEBA EXITOSA: Pipeline V3 completado sin matar la VM.'
         }
         failure {
-            echo '❌ FALLO: Revisa si la imagen jenkins/inbound-agent:latest está cargada en K3s.'
+            echo '❌ FALLO: Revisa logs. Si Jenkins se reinició de nuevo, necesitas más SWAP o cerrar apps en el host.'
         }
     }
 }
