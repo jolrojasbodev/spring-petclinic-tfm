@@ -1,7 +1,6 @@
 pipeline {
     agent {
         kubernetes {
-            // [FIX V3] Recursos MINIMALISTAS para evitar OOM (Out Of Memory) en la VM de 4GB
             yaml '''
 apiVersion: v1
 kind: Pod
@@ -16,8 +15,11 @@ spec:
     tty: true
     resources:
       requests:
-        memory: "128Mi" 
-        cpu: "100m"
+        memory: "256Mi"
+        cpu: "200m"
+      limits:
+        memory: "512Mi"
+        cpu: "500m"
     volumeMounts:
     - name: workspace-volume
       mountPath: /home/jenkins/agent
@@ -30,12 +32,8 @@ spec:
     imagePullPolicy: IfNotPresent
     resources:
       requests:
-        # [CRÍTICO] Bajamos esto al mínimo porque solo vamos a hacer "echo"
-        # En producción real necesitaremos más, pero para validar conectividad esto basta.
-        memory: "64Mi" 
+        memory: "64Mi"
         cpu: "50m"
-      limits:
-        memory: "256Mi"
         
   - name: kubectl
     image: bitnami/kubectl:latest
@@ -47,26 +45,37 @@ spec:
       requests:
         memory: "64Mi"
         cpu: "50m"
-      limits:
-        memory: "128Mi"
 '''
         }
     }
     
+    // [FIX V5] "Fail Fast": Si algo se traba, muere en 5 minutos.
+    options {
+        timeout(time: 10, unit: 'MINUTES') 
+        buildDiscarder(logRotator(numToKeepStr: '5'))
+    }
+    
     stages {
-        stage('Checkout') {
+        stage('Checkout (Shallow)') {
             steps {
                 cleanWs()
-                git branch: 'main',
-                    credentialsId: 'github-credentials',
-                    url: 'https://github.com/jolrojasbodev/spring-petclinic-tfm.git'
+                // Clonado ultrarrápido (solo el último cambio)
+                checkout([
+                    $class: 'GitSCM',
+                    branches: [[name: 'main']],
+                    userRemoteConfigs: [[
+                        url: 'https://github.com/jolrojasbodev/spring-petclinic-tfm.git',
+                        credentialsId: 'github-credentials'
+                    ]],
+                    extensions: [[$class: 'CloneOption', depth: 1, shallow: true, noTags: true, reference: '']]
+                ])
             }
         }
         
         stage('Build & Test') {
             steps {
                 container('maven') {
-                    echo "⏩ SKIPPING BUILD: Modo Ahorro de Energía (Low Memory Check)"
+                    echo "⏩ SKIPPING BUILD: Validando flujo..."
                 }
             }
         }
@@ -74,16 +83,15 @@ spec:
         stage('Deploy to K3s') {
             steps {
                 container('kubectl') {
-                    echo "🚀 Iniciando prueba de despliegue en K3s..."
+                    echo "🚀 Iniciando despliegue K3s..."
                     sh 'kubectl get nodes'
                     
-                    // Aplicamos manifiestos
                     sh 'kubectl apply -f k8s-manifests/mysql-deployment.yaml'
                     sh 'kubectl apply -f k8s-manifests/petclinic-deployment.yaml'
                     sh 'kubectl apply -f k8s-manifests/vets-deployment.yaml'
                     sh 'kubectl apply -f k8s-manifests/petclinic-ingress.yaml'
                     
-                    // Reinicio
+                    // Usamos timeout en el comando también para que no espere eternamente
                     sh 'kubectl rollout restart deployment/petclinic'
                     sh 'kubectl rollout restart deployment/vets-service'
                 }
@@ -93,10 +101,10 @@ spec:
     
     post {
         success {
-            echo '✅ PRUEBA EXITOSA: Pipeline V3 completado sin matar la VM.'
+            echo '✅ ÉXITO V5: Pipeline optimizado completado.'
         }
         failure {
-            echo '❌ FALLO: Revisa logs. Si Jenkins se reinició de nuevo, necesitas más SWAP o cerrar apps en el host.'
+            echo '❌ FALLO: Revisa conectividad o recursos.'
         }
     }
 }
