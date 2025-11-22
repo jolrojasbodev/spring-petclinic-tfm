@@ -1,9 +1,6 @@
 pipeline {
     agent {
         kubernetes {
-            // [V6 SANITY CHECK]
-            // Sin Maven, sin Kubectl, sin límites complejos.
-            // Solo verificamos que Jenkins puede hablar con K3s.
             yaml '''
 apiVersion: v1
 kind: Pod
@@ -25,7 +22,8 @@ spec:
     }
     
     options {
-        timeout(time: 2, unit: 'MINUTES') 
+        timeout(time: 2, unit: 'MINUTES')
+        skipDefaultCheckout()  // <--- ¡ESTO ES LA CLAVE! No descargará nada de GitHub.
     }
     
     stages {
@@ -35,15 +33,7 @@ spec:
                     echo "-------------------------------------------------"
                     echo "✅ ¡HOLA MUNDO! SI LEES ESTO, JENKINS ESTÁ VIVO."
                     echo "-------------------------------------------------"
-                    
-                    echo "1. Verificando identidad:"
-                    sh 'whoami'
-                    
-                    echo "2. Verificando Java:"
-                    sh 'java -version'
-                    
-                    echo "3. Verificando sistema de archivos:"
-                    sh 'ls -la'
+                    sh 'echo "Jenkins se ha comunicado con Kubernetes correctamente."'
                 }
             }
         }
