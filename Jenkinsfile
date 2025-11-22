@@ -1,7 +1,7 @@
 pipeline {
     agent {
         kubernetes {
-            // YAML puro para control total sobre recursos y comandos del agente
+            // YAML puro para control total
             yaml '''
 apiVersion: v1
 kind: Pod
@@ -10,21 +10,37 @@ metadata:
     app: jenkins-agent
 spec:
   containers:
+  # [FIX V2] Definimos explícitamente el agente JNLP para usar la imagen local
+  - name: jnlp
+    image: jenkins/inbound-agent:latest
+    imagePullPolicy: IfNotPresent
+    tty: true
+    volumeMounts:
+    - name: workspace-volume
+      mountPath: /home/jenkins/agent
+  
   - name: maven
     image: maven:3.8.5-openjdk-17
     command: ["cat"]
     tty: true
     stdin: true
+    imagePullPolicy: IfNotPresent
     resources:
       requests:
-        memory: "1Gi"
+        memory: "512Mi" 
         cpu: "500m"
         ephemeral-storage: "1Gi"
+      limits:
+        memory: "1Gi"
+        cpu: "1000m"
+        ephemeral-storage: "2Gi"
+        
   - name: kubectl
     image: bitnami/kubectl:latest
     command: ["cat"]
     tty: true
     stdin: true
+    imagePullPolicy: IfNotPresent
     resources:
       requests:
         memory: "128Mi"
@@ -49,18 +65,9 @@ spec:
         stage('Build & Test') {
             steps {
                 container('maven') {
-                    // [MODIFICACIÓN V1] Saltamos la compilación para probar rápido la conexión a K8s
                     echo "⏩ SKIPPING BUILD: Enfocando prueba en despliegue Kubernetes..."
                     // sh 'chmod +x mvnw'
                     // sh './mvnw clean package -DskipTests'
-                }
-            }
-        }
-        
-        stage('Build Image (Simulation)') {
-            steps {
-                script {
-                    echo "⚠️ SKIPPING DOCKER BUILD: Entorno Air-gapped/Local."
                 }
             }
         }
@@ -70,17 +77,15 @@ spec:
                 container('kubectl') {
                     echo "🚀 Iniciando prueba de despliegue en K3s..."
                     
-                    // 1. Verificamos identidad y conexión
                     sh 'kubectl get nodes'
-                    sh 'kubectl cluster-info'
                     
-                    // 2. Aplicamos manifiestos (La prueba de fuego)
+                    // Aplicamos manifiestos
                     sh 'kubectl apply -f k8s-manifests/mysql-deployment.yaml'
                     sh 'kubectl apply -f k8s-manifests/petclinic-deployment.yaml'
                     sh 'kubectl apply -f k8s-manifests/vets-deployment.yaml'
                     sh 'kubectl apply -f k8s-manifests/petclinic-ingress.yaml'
                     
-                    // 3. Forzamos reinicio
+                    // Forzamos reinicio
                     sh 'kubectl rollout restart deployment/petclinic'
                     sh 'kubectl rollout restart deployment/vets-service'
                 }
@@ -90,10 +95,10 @@ spec:
     
     post {
         success {
-            echo '✅ PRUEBA EXITOSA: El agente Kubernetes funciona y ha desplegado los manifiestos.'
+            echo '✅ PRUEBA EXITOSA: El agente Kubernetes (JNLP + Kubectl) funciona correctamente.'
         }
         failure {
-            echo '❌ FALLO: El agente o la conexión a K3s siguen fallando.'
+            echo '❌ FALLO: Revisa si la imagen jenkins/inbound-agent:latest está cargada en K3s.'
         }
     }
 }
