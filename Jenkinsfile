@@ -34,26 +34,29 @@ spec:
     
     options {
         timeout(time: 5, unit: 'MINUTES')
-        skipDefaultCheckout()
+        skipDefaultCheckout() // Importante: No dejar que Jenkins toque Git
     }
     
     stages {
-        stage('Checkout (Rápido)') {
+        stage('Descargar Manifiestos') {
             steps {
                 cleanWs()
-                checkout([
-                    $class: 'GitSCM',
-                    branches: [[name: 'main']],
-                    userRemoteConfigs: [[
-                        url: 'https://github.com/jolrojasbodev/spring-petclinic-tfm.git',
-                        credentialsId: 'github-credentials'
-                    ]],
-                    extensions: [[$class: 'CloneOption', depth: 1, shallow: true, noTags: true, reference: '']]
-                ])
-                
-                // [FIX V9] BORRAMOS LA CARPETA .git
-                // Esto engaña a Jenkins para que no intente usar git en el contenedor kubectl
-                sh 'rm -rf .git' 
+                script {
+                    // En lugar de clonar todo el repo, bajamos solo lo que necesitamos.
+                    // Usamos el contenedor JNLP que tiene herramientas de red.
+                    echo "📥 Descargando manifiestos RAW desde GitHub..."
+                    
+                    // Base URL del repo (rama main)
+                    def baseUrl = "https://raw.githubusercontent.com/jolrojasbodev/spring-petclinic-tfm/main/k8s-manifests"
+                    
+                    // Descarga manual de los 4 archivos
+                    sh "curl -O ${baseUrl}/mysql-deployment.yaml"
+                    sh "curl -O ${baseUrl}/petclinic-deployment.yaml"
+                    sh "curl -O ${baseUrl}/vets-deployment.yaml"
+                    sh "curl -O ${baseUrl}/petclinic-ingress.yaml"
+                    
+                    sh "ls -la *.yaml" // Verificar que bajaron
+                }
             }
         }
         
@@ -62,14 +65,15 @@ spec:
                 container('kubectl') {
                     echo "🚀 Desplegando PetClinic en K3s..."
                     
-                    // Ahora esto no debería intentar ejecutar git
-                    sh 'kubectl get nodes'
+                    // Como no usamos 'checkout', Jenkins NO intentará ejecutar git aquí.
+                    // Los archivos .yaml están en el workspace compartido.
                     
-                    sh 'kubectl apply -f k8s-manifests/mysql-deployment.yaml'
-                    sh 'kubectl apply -f k8s-manifests/petclinic-deployment.yaml'
-                    sh 'kubectl apply -f k8s-manifests/vets-deployment.yaml'
-                    sh 'kubectl apply -f k8s-manifests/petclinic-ingress.yaml'
+                    sh 'kubectl apply -f mysql-deployment.yaml'
+                    sh 'kubectl apply -f petclinic-deployment.yaml'
+                    sh 'kubectl apply -f vets-deployment.yaml'
+                    sh 'kubectl apply -f petclinic-ingress.yaml'
                     
+                    // Reinicio
                     sh 'kubectl rollout restart deployment/petclinic'
                     sh 'kubectl rollout restart deployment/vets-service'
                 }
@@ -79,7 +83,7 @@ spec:
     
     post {
         success {
-            echo '✅ FASE 2 COMPLETADA: CI/CD Funcional.'
+            echo '✅ FASE 2 COMPLETADA: CI/CD Funcional (Modo No-Git).'
         }
     }
 }
