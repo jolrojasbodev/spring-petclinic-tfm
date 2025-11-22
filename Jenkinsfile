@@ -17,11 +17,10 @@ spec:
         memory: "2Gi"
         ephemeral-storage: "2Gi"
   - name: kubectl
-    image: bitnami/kubectl:latest
+    image: dtzar/helm-kubectl:1.14.0
     command:
     - cat
     tty: true
-    stdin: true
 '''
         }
     }
@@ -45,7 +44,6 @@ spec:
         stage('Deploy to Dev') {
             steps {
                 container('kubectl') {
-                    // Aplicamos los manifiestos
                     sh 'kubectl apply -f k8s-manifests/petclinic-deployment.yaml'
                     sh 'kubectl apply -f k8s-manifests/vets-deployment.yaml'
                     sh 'kubectl apply -f k8s-manifests/petclinic-ingress.yaml'
