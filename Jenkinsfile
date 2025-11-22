@@ -8,8 +8,7 @@ spec:
   containers:
   - name: maven
     image: maven:3.8.5-openjdk-17
-    command:
-    - cat
+    command: ["cat"]
     tty: true
     stdin: true
     resources:
@@ -17,10 +16,10 @@ spec:
         memory: "2Gi"
         ephemeral-storage: "2Gi"
   - name: kubectl
-    image: dtzar/helm-kubectl:1.14.0
-    command:
-    - cat
+    image: bitnami/kubectl:latest
+    command: ["cat"]
     tty: true
+    stdin: true
 '''
         }
     }
@@ -29,7 +28,7 @@ spec:
             steps {
                 git branch: 'main',
                     credentialsId: 'github-credentials',
-                    url: 'https://github.com/jolrojasbodev/spring-petclinic-tfm.git' 
+                    url: 'https://github.com/jolrojasbodev/spring-petclinic-tfm.git'
             }
         }
         
