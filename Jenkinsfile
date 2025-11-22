@@ -34,14 +34,13 @@ spec:
     
     options {
         timeout(time: 5, unit: 'MINUTES')
-        skipDefaultCheckout()  // <--- [FIX V8] ¡ESTA ES LA CLAVE! Evita que intente usar Git en el contenedor kubectl
+        skipDefaultCheckout()
     }
     
     stages {
         stage('Checkout (Rápido)') {
             steps {
                 cleanWs()
-                // Hacemos el checkout manual aquí y SOLO aquí.
                 checkout([
                     $class: 'GitSCM',
                     branches: [[name: 'main']],
@@ -51,6 +50,10 @@ spec:
                     ]],
                     extensions: [[$class: 'CloneOption', depth: 1, shallow: true, noTags: true, reference: '']]
                 ])
+                
+                // [FIX V9] BORRAMOS LA CARPETA .git
+                // Esto engaña a Jenkins para que no intente usar git en el contenedor kubectl
+                sh 'rm -rf .git' 
             }
         }
         
@@ -59,16 +62,14 @@ spec:
                 container('kubectl') {
                     echo "🚀 Desplegando PetClinic en K3s..."
                     
-                    // Verificamos nodos
+                    // Ahora esto no debería intentar ejecutar git
                     sh 'kubectl get nodes'
                     
-                    // Aplicamos configuración
                     sh 'kubectl apply -f k8s-manifests/mysql-deployment.yaml'
                     sh 'kubectl apply -f k8s-manifests/petclinic-deployment.yaml'
                     sh 'kubectl apply -f k8s-manifests/vets-deployment.yaml'
                     sh 'kubectl apply -f k8s-manifests/petclinic-ingress.yaml'
                     
-                    // Reiniciamos pods para asegurar que tomen la config
                     sh 'kubectl rollout restart deployment/petclinic'
                     sh 'kubectl rollout restart deployment/vets-service'
                 }
