@@ -1,50 +1,56 @@
 pipeline {
-        agent {
-            kubernetes {
-                yaml '''
+    agent {
+        kubernetes {
+            yaml '''
 apiVersion: v1
 kind: Pod
 spec:
   containers:
   - name: maven
     image: maven:3.8.5-openjdk-17
-    command: ["/bin/bash", "-c", "tail -f /dev/null"]
+    command:
+    - cat
+    tty: true
+    stdin: true
     resources:
       requests:
         memory: "2Gi"
         ephemeral-storage: "2Gi"
   - name: kubectl
     image: bitnami/kubectl:latest
-    command: ["/bin/bash", "-c", "tail -f /dev/null"]
+    command:
+    - cat
+    tty: true
+    stdin: true
 '''
+        }
+    }
+    stages {
+        stage('Checkout') {
+            steps {
+                git branch: 'main',
+                    credentialsId: 'github-credentials',
+                    url: 'https://github.com/jolrojasbodev/spring-petclinic-tfm.git' 
             }
         }
-        stages {
-            stage('Checkout') {
-                steps {
-                    git branch: 'main',
-                        credentialsId: 'github-credentials',
-                        url: 'https://github.com/jolrojasbodev/spring-petclinic-tfm.git' 
+        
+        stage('Build & Test') {
+            steps {
+                container('maven') {
+                    sh './mvnw clean package -DskipTests'
                 }
             }
-            
-            stage('Build & Test') {
-                steps {
-                    container('maven') {
-                        sh './mvnw clean package -DskipTests'
-                    }
-                }
-            }
-            
-            stage('Deploy to Dev') {
-                steps {
-                    container('kubectl') {
-                        // Aplicamos el manifiesto del monolito para el CD
-                        sh 'kubectl apply -f k8s-manifests/petclinic-deployment.yaml'
-                        sh 'kubectl apply -f k8s-manifests/vets-deployment.yaml'
-                        sh 'kubectl apply -f k8s-manifests/petclinic-ingress.yaml'
-                    }
+        }
+        
+        stage('Deploy to Dev') {
+            steps {
+                container('kubectl') {
+                    // Aplicamos los manifiestos
+                    sh 'kubectl apply -f k8s-manifests/petclinic-deployment.yaml'
+                    sh 'kubectl apply -f k8s-manifests/vets-deployment.yaml'
+                    sh 'kubectl apply -f k8s-manifests/petclinic-ingress.yaml'
                 }
             }
         }
     }
+}
