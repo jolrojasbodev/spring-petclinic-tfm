@@ -1,9 +1,6 @@
 pipeline {
     agent {
         kubernetes {
-            // [V7 FINAL LITE]
-            // Recuperamos el contenedor 'kubectl' para poder desplegar.
-            // Mantenemos recursos bajos.
             yaml '''
 apiVersion: v1
 kind: Pod
@@ -36,14 +33,15 @@ spec:
     }
     
     options {
-        timeout(time: 5, unit: 'MINUTES') 
+        timeout(time: 5, unit: 'MINUTES')
+        skipDefaultCheckout()  // <--- [FIX V8] ¡ESTA ES LA CLAVE! Evita que intente usar Git en el contenedor kubectl
     }
     
     stages {
         stage('Checkout (Rápido)') {
             steps {
                 cleanWs()
-                // Descarga solo el último commit (KBs en vez de MBs)
+                // Hacemos el checkout manual aquí y SOLO aquí.
                 checkout([
                     $class: 'GitSCM',
                     branches: [[name: 'main']],
