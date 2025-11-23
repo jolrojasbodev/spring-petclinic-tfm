@@ -27,23 +27,28 @@ spec:
     }
     
     stages {
-        stage('Deploy & Force Restart') {
+        stage('Deploy Correcto (Namespace Default)') {
             steps {
                 script {
-                    echo "🚀 Iniciando despliegue V16 (Estrategia Tierra Quemada)..."
+                    echo "📦 Preparando entorno V17 (Fix Namespace)..."
+                    sh 'rm -f *.yaml' 
                     
-                    // 1. Descargar kubectl si no existe
-                    if (!fileExists('kubectl')) {
-                        sh "curl -L --retry 3 -o kubectl https://dl.k8s.io/release/v1.28.2/bin/linux/amd64/kubectl"
-                        sh "chmod +x kubectl"
-                    }
-
-                    // 2. Crear el YAML con 2 RÉPLICAS (Esto es lo que queremos ver)
+                    def cb = System.currentTimeMillis()
+                    def url = "https://raw.githubusercontent.com/jolrojasbodev/spring-petclinic-tfm/main/k8s-manifests"
+                    
+                    echo "⬇️ Descargando manifiestos..."
+                    sh "curl -L -o mysql-deployment.yaml \"${url}/mysql-deployment.yaml?t=${cb}\""
+                    sh "curl -L -o petclinic-deployment.yaml \"${url}/petclinic-deployment.yaml?t=${cb}\""
+                    sh "curl -L -o vets-deployment.yaml \"${url}/vets-deployment.yaml?t=${cb}\""
+                    sh "curl -L -o petclinic-ingress.yaml \"${url}/petclinic-ingress.yaml?t=${cb}\""
+                    
+                    // Crear YAML con 2 réplicas explícito
                     writeFile file: 'petclinic-deployment.yaml', text: '''
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: petclinic
+  namespace: default  # <--- FORZAMOS EL NAMESPACE EN EL YAML
 spec:
   replicas: 2
   selector:
@@ -64,7 +69,7 @@ spec:
         - name: SPRING_PROFILES_ACTIVE
           value: "mysql"
         - name: SPRING_DATASOURCE_URL
-          value: "jdbc:mysql://mysql-db:3306/petclinic"
+          value: "jdbc:mysql://mysql-db.default.svc.cluster.local:3306/petclinic" # URL COMPLETA (FQDN)
         - name: SPRING_DATASOURCE_USERNAME
           value: "petclinic"
         - name: SPRING_DATASOURCE_PASSWORD
@@ -74,6 +79,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: petclinic-service
+  namespace: default # <--- FORZAMOS EL NAMESPACE AQUÍ TAMBIÉN
 spec:
   type: NodePort
   selector:
@@ -83,25 +89,34 @@ spec:
     targetPort: 8080
     nodePort: 30080
 '''
+
+                    if (!fileExists('kubectl')) {
+                        sh "curl -L --retry 3 -o kubectl https://dl.k8s.io/release/v1.28.2/bin/linux/amd64/kubectl"
+                        sh "chmod +x kubectl"
+                    }
                     
-                    // 3. Aplicar configuración
-                    echo "📄 Aplicando manifiesto..."
-                    sh "./kubectl apply -f petclinic-deployment.yaml"
+                    echo "🚀 Aplicando cambios en namespace DEFAULT..."
+                    // Usamos -n default para asegurar el tiro
+                    sh "./kubectl apply -f mysql-deployment.yaml -n default"
+                    sh "./kubectl apply -f petclinic-deployment.yaml -n default" 
+                    sh "./kubectl apply -f vets-deployment.yaml -n default"
+                    sh "./kubectl apply -f petclinic-ingress.yaml -n default"
                     
-                    // 4. LA CLAVE: Borrar pods viejos para forzar creación de nuevos
-                    echo "💀 Borrando pods antiguos para forzar reinicio..."
-                    sh "./kubectl delete pods -l app=petclinic --wait=false"
+                    echo "💀 Borrando pods viejos en DEFAULT..."
+                    sh "./kubectl delete pods -l app=petclinic -n default --wait=false"
                     
-                    // 5. Verificación visual
-                    echo "👀 Esperando nuevos pods..."
+                    echo "🧹 Limpieza: Borrando despliegue accidental en namespace jenkins..."
+                    sh "./kubectl delete deployment petclinic -n jenkins --ignore-not-found=true"
+                    
+                    echo "✅ Verificando pods en DEFAULT..."
                     sleep 10
-                    sh "./kubectl get pods -l app=petclinic"
+                    sh "./kubectl get pods -l app=petclinic -n default"
                 }
             }
         }
     }
     
     post {
-        success { echo '✅ ÉXITO V16: Pods recreados.' }
+        success { echo '✅ ÉXITO V17: Despliegue corregido en Default.' }
     }
 }
