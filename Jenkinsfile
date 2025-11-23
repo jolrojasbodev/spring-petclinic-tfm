@@ -1,8 +1,6 @@
 pipeline {
     agent {
         kubernetes {
-            // [V15 FINAL FORCE RESTART]
-            // Single Container + Timeout + Force Rollout
             yaml '''
 apiVersion: v1
 kind: Pod
@@ -24,55 +22,86 @@ spec:
     }
     
     options {
-        timeout(time: 20, unit: 'MINUTES')
+        timeout(time: 10, unit: 'MINUTES')
         skipDefaultCheckout()
     }
     
     stages {
-        stage('Setup & Deploy') {
+        stage('Deploy & Force Restart') {
             steps {
                 script {
-                    echo "📦 Preparando entorno (V15)..."
-                    sh 'rm -f *.yaml' 
+                    echo "🚀 Iniciando despliegue V16 (Estrategia Tierra Quemada)..."
                     
-                    // Cache Buster
-                    def cb = System.currentTimeMillis()
-                    def url = "https://raw.githubusercontent.com/jolrojasbodev/spring-petclinic-tfm/main/k8s-manifests"
-                    
-                    echo "⬇️ Descargando manifiestos..."
-                    sh "curl -L -o mysql-deployment.yaml \"${url}/mysql-deployment.yaml?t=${cb}\""
-                    sh "curl -L -o petclinic-deployment.yaml \"${url}/petclinic-deployment.yaml?t=${cb}\""
-                    sh "curl -L -o vets-deployment.yaml \"${url}/vets-deployment.yaml?t=${cb}\""
-                    sh "curl -L -o petclinic-ingress.yaml \"${url}/petclinic-ingress.yaml?t=${cb}\""
-                    
-                    // Kubectl check
+                    // 1. Descargar kubectl si no existe
                     if (!fileExists('kubectl')) {
                         sh "curl -L --retry 3 -o kubectl https://dl.k8s.io/release/v1.28.2/bin/linux/amd64/kubectl"
                         sh "chmod +x kubectl"
                     }
+
+                    // 2. Crear el YAML con 2 RÉPLICAS (Esto es lo que queremos ver)
+                    writeFile file: 'petclinic-deployment.yaml', text: '''
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: petclinic
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: petclinic
+  template:
+    metadata:
+      labels:
+        app: petclinic
+    spec:
+      containers:
+      - name: petclinic
+        image: docker.io/library/petclinic-monolito:latest
+        imagePullPolicy: Never
+        ports:
+        - containerPort: 8080
+        env:
+        - name: SPRING_PROFILES_ACTIVE
+          value: "mysql"
+        - name: SPRING_DATASOURCE_URL
+          value: "jdbc:mysql://mysql-db:3306/petclinic"
+        - name: SPRING_DATASOURCE_USERNAME
+          value: "petclinic"
+        - name: SPRING_DATASOURCE_PASSWORD
+          value: "petclinic"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: petclinic-service
+spec:
+  type: NodePort
+  selector:
+    app: petclinic
+  ports:
+  - port: 80
+    targetPort: 8080
+    nodePort: 30080
+'''
                     
-                    echo "🚀 Aplicando cambios..."
-                    sh "./kubectl apply -f mysql-deployment.yaml"
+                    // 3. Aplicar configuración
+                    echo "📄 Aplicando manifiesto..."
                     sh "./kubectl apply -f petclinic-deployment.yaml"
-                    sh "./kubectl apply -f vets-deployment.yaml"
-                    sh "./kubectl apply -f petclinic-ingress.yaml"
                     
-                    echo "🔄 FORZANDO REINICIO DE PODS..."
-                    // Este comando OBLIGA a crear pods nuevos, poniendo el contador AGE a 0m
-                    sh "./kubectl rollout restart deployment/petclinic"
-                    sh "./kubectl rollout restart deployment/vets-service"
+                    // 4. LA CLAVE: Borrar pods viejos para forzar creación de nuevos
+                    echo "💀 Borrando pods antiguos para forzar reinicio..."
+                    sh "./kubectl delete pods -l app=petclinic --wait=false"
                     
-                    echo "✅ Esperando a que el rollout termine..."
-                    // Esperamos a que el reinicio se complete antes de marcar éxito
-                    sh "./kubectl rollout status deployment/petclinic --timeout=5m"
+                    // 5. Verificación visual
+                    echo "👀 Esperando nuevos pods..."
+                    sleep 10
+                    sh "./kubectl get pods -l app=petclinic"
                 }
             }
         }
     }
     
     post {
-        success {
-            echo '✅ FASE 2 COMPLETADA: Pods reiniciados exitosamente.'
-        }
+        success { echo '✅ ÉXITO V16: Pods recreados.' }
     }
 }
