@@ -1,8 +1,6 @@
 pipeline {
     agent {
         kubernetes {
-            // [V13 FINAL ANTI-CACHE]
-            // Misma estrategia Single Container, pero forzando descarga fresca de GitHub.
             yaml '''
 apiVersion: v1
 kind: Pod
@@ -32,29 +30,26 @@ spec:
         stage('Setup & Deploy') {
             steps {
                 script {
-                    echo "📦 Preparando entorno..."
+                    echo "📦 Preparando entorno (V13 Anti-Cache)..."
                     sh 'rm -f *.yaml' 
                     
-                    // Generamos un timestamp para romper la caché de GitHub
-                    def cacheBuster = System.currentTimeMillis()
-                    def baseUrl = "https://raw.githubusercontent.com/jolrojasbodev/spring-petclinic-tfm/main/k8s-manifests"
+                    // Timestamp para romper caché
+                    def cb = System.currentTimeMillis()
+                    def url = "https://raw.githubusercontent.com/jolrojasbodev/spring-petclinic-tfm/main/k8s-manifests"
                     
-                    echo "⬇️ Descargando manifiestos FRESCOS (Bypass Cache)..."
-                    // Usamos -o para guardar con nombre fijo, pero añadimos ?t=... a la URL
-                    sh "curl -L -o mysql-deployment.yaml \"${baseUrl}/mysql-deployment.yaml?t=${cacheBuster}\""
-                    sh "curl -L -o petclinic-deployment.yaml \"${baseUrl}/petclinic-deployment.yaml?t=${cacheBuster}\""
-                    sh "curl -L -o vets-deployment.yaml \"${baseUrl}/vets-deployment.yaml?t=${cacheBuster}\""
-                    sh "curl -L -o petclinic-ingress.yaml \"${baseUrl}/petclinic-ingress.yaml?t=${cacheBuster}\""
+                    echo "⬇️ Descargando manifiestos FRESCOS..."
+                    // Usamos ?t= para obligar a GitHub a darnos lo nuevo
+                    sh "curl -L -o mysql-deployment.yaml \"${url}/mysql-deployment.yaml?t=${cb}\""
+                    sh "curl -L -o petclinic-deployment.yaml \"${url}/petclinic-deployment.yaml?t=${cb}\""
+                    sh "curl -L -o vets-deployment.yaml \"${url}/vets-deployment.yaml?t=${cb}\""
+                    sh "curl -L -o petclinic-ingress.yaml \"${url}/petclinic-ingress.yaml?t=${cb}\""
                     
-                    // Imprimimos para verificar que bajó lo correcto (Depuración)
+                    // Depuración: Mostrar qué bajamos realmente
                     sh "grep 'replicas:' petclinic-deployment.yaml"
 
-                    // Descarga de Kubectl (con caché local si existe)
-                    if (fileExists('kubectl')) {
-                        echo "✅ kubectl ya existe."
-                    } else {
-                        echo "⬇️ Descargando kubectl..."
-                        sh "curl -L --retry 3 --retry-delay 5 -o kubectl https://dl.k8s.io/release/v1.28.2/bin/linux/amd64/kubectl"
+                    // Kubectl
+                    if (!fileExists('kubectl')) {
+                        sh "curl -L --retry 3 -o kubectl https://dl.k8s.io/release/v1.28.2/bin/linux/amd64/kubectl"
                         sh "chmod +x kubectl"
                     }
                     
@@ -64,7 +59,6 @@ spec:
                     sh "./kubectl apply -f vets-deployment.yaml"
                     sh "./kubectl apply -f petclinic-ingress.yaml"
                     
-                    // Reinicio forzado para que se note el cambio
                     sh "./kubectl rollout restart deployment/petclinic"
                 }
             }
@@ -72,8 +66,6 @@ spec:
     }
     
     post {
-        success {
-            echo '✅ FASE 2 COMPLETADA: Despliegue actualizado.'
-        }
+        success { echo '✅ ÉXITO V13' }
     }
 }
