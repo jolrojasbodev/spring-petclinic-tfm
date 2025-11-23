@@ -27,13 +27,12 @@ spec:
     }
     
     stages {
-        stage('Deploy Correcto (Namespace Default)') {
+        stage('Deploy & Cleanup') {
             steps {
                 script {
-                    echo "📦 Preparando entorno V19 (Fix Namespace)..."
+                    echo "📦 Preparando entorno V20 (Full Cleanup)..."
                     sh 'rm -f *.yaml' 
                     
-                    // Cache Buster para asegurar archivos frescos
                     def cb = System.currentTimeMillis()
                     def url = "https://raw.githubusercontent.com/jolrojasbodev/spring-petclinic-tfm/main/k8s-manifests"
                     
@@ -43,88 +42,37 @@ spec:
                     sh "curl -L -o vets-deployment.yaml \"${url}/vets-deployment.yaml?t=${cb}\""
                     sh "curl -L -o petclinic-ingress.yaml \"${url}/petclinic-ingress.yaml?t=${cb}\""
                     
-                    // Crear YAML con 2 réplicas explícito y namespace forzado
-                    writeFile file: 'petclinic-deployment.yaml', text: '''
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: petclinic
-  namespace: default  # <--- FORZAMOS EL NAMESPACE EN EL YAML
-spec:
-  replicas: 2
-  selector:
-    matchLabels:
-      app: petclinic
-  template:
-    metadata:
-      labels:
-        app: petclinic
-    spec:
-      containers:
-      - name: petclinic
-        image: docker.io/library/petclinic-monolito:latest
-        imagePullPolicy: Never
-        ports:
-        - containerPort: 8080
-        env:
-        - name: SPRING_PROFILES_ACTIVE
-          value: "mysql"
-        - name: SPRING_DATASOURCE_URL
-          value: "jdbc:mysql://mysql-db.default.svc.cluster.local:3306/petclinic" # URL COMPLETA (FQDN) PARA EVITAR ERRORES DNS
-        - name: SPRING_DATASOURCE_USERNAME
-          value: "petclinic"
-        - name: SPRING_DATASOURCE_PASSWORD
-          value: "petclinic"
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: petclinic-service
-  namespace: default # <--- FORZAMOS EL NAMESPACE AQUÍ TAMBIÉN
-spec:
-  type: NodePort
-  selector:
-    app: petclinic
-  ports:
-  - port: 80
-    targetPort: 8080
-    nodePort: 30080
-'''
-
                     if (!fileExists('kubectl')) {
                         sh "curl -L --retry 3 -o kubectl https://dl.k8s.io/release/v1.28.2/bin/linux/amd64/kubectl"
                         sh "chmod +x kubectl"
                     }
                     
-                    // [FIX IMPORTANTE] Limpieza previa de servicios conflictivos en AMBOS namespaces
-                    echo "🧹 Limpiando servicios zombis (Puerto 30080)..."
-                    sh "./kubectl delete service petclinic-service -n jenkins --ignore-not-found=true"
-                    sh "./kubectl delete service petclinic-service -n default --ignore-not-found=true"
+                    // 1. LIMPIEZA PREVIA (Servicios zombis)
+                    echo "🧹 Limpiando servicios zombis..."
+                    sh "./kubectl delete service petclinic-service vets-service mysql-db -n jenkins --ignore-not-found=true"
+                    sh "./kubectl delete deployment petclinic vets-service mysql-db -n jenkins --ignore-not-found=true"
 
+                    // 2. DESPLIEGUE EN DEFAULT
                     echo "🚀 Aplicando cambios en namespace DEFAULT..."
-                    // Usamos -n default para asegurar el tiro
                     sh "./kubectl apply -f mysql-deployment.yaml -n default"
                     sh "./kubectl apply -f petclinic-deployment.yaml -n default" 
                     sh "./kubectl apply -f vets-deployment.yaml -n default"
                     sh "./kubectl apply -f petclinic-ingress.yaml -n default"
                     
-                    echo "💀 Borrando pods viejos en DEFAULT..."
-                    // Esto forzará que el Deployment en 'default' cree nuevos pods
+                    // 3. REINICIO FORZADO (Para Petclinic Y Vets)
+                    echo "💀 Reiniciando TODOS los servicios..."
                     sh "./kubectl delete pods -l app=petclinic -n default --wait=false"
-                    
-                    echo "🧹 Limpieza: Borrando despliegue accidental en namespace jenkins..."
-                    // Borramos el error anterior para liberar recursos
-                    sh "./kubectl delete deployment petclinic -n jenkins --ignore-not-found=true"
+                    sh "./kubectl delete pods -l app=vets-service -n default --wait=false"
                     
                     echo "✅ Verificando pods en DEFAULT..."
                     sleep 10
-                    sh "./kubectl get pods -l app=petclinic -n default"
+                    sh "./kubectl get pods -n default"
                 }
             }
         }
     }
     
     post {
-        success { echo '✅ ÉXITO V19: Despliegue corregido en Default.' }
+        success { echo '✅ ÉXITO V20: Entorno limpio y actualizado.' }
     }
 }
