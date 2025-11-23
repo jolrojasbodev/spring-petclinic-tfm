@@ -1,8 +1,8 @@
 pipeline {
     agent {
         kubernetes {
-            // [V12 FINAL]
-            // Estrategia Single Container + Timeout extendido para redes lentas.
+            // [V13 FINAL ANTI-CACHE]
+            // Misma estrategia Single Container, pero forzando descarga fresca de GitHub.
             yaml '''
 apiVersion: v1
 kind: Pod
@@ -24,7 +24,6 @@ spec:
     }
     
     options {
-        // [FIX V12] Aumentamos a 20 minutos para dar tiempo a la descarga lenta de kubectl
         timeout(time: 20, unit: 'MINUTES')
         skipDefaultCheckout()
     }
@@ -34,39 +33,39 @@ spec:
             steps {
                 script {
                     echo "📦 Preparando entorno..."
-                    
-                    // Limpiamos solo archivos YAML viejos, pero intentamos conservar kubectl si existe
                     sh 'rm -f *.yaml' 
                     
-                    // 1. Descargar Manifiestos
+                    // Generamos un timestamp para romper la caché de GitHub
+                    def cacheBuster = System.currentTimeMillis()
                     def baseUrl = "https://raw.githubusercontent.com/jolrojasbodev/spring-petclinic-tfm/main/k8s-manifests"
-                    sh "curl -O ${baseUrl}/mysql-deployment.yaml"
-                    sh "curl -O ${baseUrl}/petclinic-deployment.yaml"
-                    sh "curl -O ${baseUrl}/vets-deployment.yaml"
-                    sh "curl -O ${baseUrl}/petclinic-ingress.yaml"
                     
-                    // 2. Descargar binario de Kubectl (con caché)
+                    echo "⬇️ Descargando manifiestos FRESCOS (Bypass Cache)..."
+                    // Usamos -o para guardar con nombre fijo, pero añadimos ?t=... a la URL
+                    sh "curl -L -o mysql-deployment.yaml \"${baseUrl}/mysql-deployment.yaml?t=${cacheBuster}\""
+                    sh "curl -L -o petclinic-deployment.yaml \"${baseUrl}/petclinic-deployment.yaml?t=${cacheBuster}\""
+                    sh "curl -L -o vets-deployment.yaml \"${baseUrl}/vets-deployment.yaml?t=${cacheBuster}\""
+                    sh "curl -L -o petclinic-ingress.yaml \"${baseUrl}/petclinic-ingress.yaml?t=${cacheBuster}\""
+                    
+                    // Imprimimos para verificar que bajó lo correcto (Depuración)
+                    sh "grep 'replicas:' petclinic-deployment.yaml"
+
+                    // Descarga de Kubectl (con caché local si existe)
                     if (fileExists('kubectl')) {
-                        echo "✅ kubectl ya existe, saltando descarga."
+                        echo "✅ kubectl ya existe."
                     } else {
-                        echo "⬇️ Descargando kubectl (47MB)... (Paciencia, red lenta)"
-                        // Usamos curl con reintentos y verbose para ver progreso
+                        echo "⬇️ Descargando kubectl..."
                         sh "curl -L --retry 3 --retry-delay 5 -o kubectl https://dl.k8s.io/release/v1.28.2/bin/linux/amd64/kubectl"
                         sh "chmod +x kubectl"
                     }
                     
-                    // 3. Desplegar
                     echo "🚀 Desplegando..."
-                    sh "./kubectl get nodes"
-                    
                     sh "./kubectl apply -f mysql-deployment.yaml"
                     sh "./kubectl apply -f petclinic-deployment.yaml"
                     sh "./kubectl apply -f vets-deployment.yaml"
                     sh "./kubectl apply -f petclinic-ingress.yaml"
                     
-                    // 4. Reiniciar
+                    // Reinicio forzado para que se note el cambio
                     sh "./kubectl rollout restart deployment/petclinic"
-                    sh "./kubectl rollout restart deployment/vets-service"
                 }
             }
         }
@@ -74,7 +73,7 @@ spec:
     
     post {
         success {
-            echo '✅ FASE 2 COMPLETADA: Despliegue Exitoso.'
+            echo '✅ FASE 2 COMPLETADA: Despliegue actualizado.'
         }
     }
 }
