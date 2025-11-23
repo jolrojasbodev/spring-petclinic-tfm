@@ -1,6 +1,8 @@
 pipeline {
     agent {
         kubernetes {
+            // [V15 FINAL FORCE RESTART]
+            // Single Container + Timeout + Force Rollout
             yaml '''
 apiVersion: v1
 kind: Pod
@@ -20,82 +22,57 @@ spec:
 '''
         }
     }
-
+    
     options {
-        timeout(time: 10, unit: 'MINUTES')
+        timeout(time: 20, unit: 'MINUTES')
         skipDefaultCheckout()
     }
-
+    
     stages {
-        stage('Deploy Directo') {
+        stage('Setup & Deploy') {
             steps {
                 script {
-                    echo "🚀 Desplegando configuración incrustada (V14)..."
-
-                    // Bajamos kubectl (única dependencia externa)
+                    echo "📦 Preparando entorno (V15)..."
+                    sh 'rm -f *.yaml' 
+                    
+                    // Cache Buster
+                    def cb = System.currentTimeMillis()
+                    def url = "https://raw.githubusercontent.com/jolrojasbodev/spring-petclinic-tfm/main/k8s-manifests"
+                    
+                    echo "⬇️ Descargando manifiestos..."
+                    sh "curl -L -o mysql-deployment.yaml \"${url}/mysql-deployment.yaml?t=${cb}\""
+                    sh "curl -L -o petclinic-deployment.yaml \"${url}/petclinic-deployment.yaml?t=${cb}\""
+                    sh "curl -L -o vets-deployment.yaml \"${url}/vets-deployment.yaml?t=${cb}\""
+                    sh "curl -L -o petclinic-ingress.yaml \"${url}/petclinic-ingress.yaml?t=${cb}\""
+                    
+                    // Kubectl check
                     if (!fileExists('kubectl')) {
                         sh "curl -L --retry 3 -o kubectl https://dl.k8s.io/release/v1.28.2/bin/linux/amd64/kubectl"
                         sh "chmod +x kubectl"
                     }
-
-                    // ESCRIBIMOS EL YAML AQUÍ MISMO. ¡SIN INTERMEDIARIOS!
-                    // Fíjate en 'replicas: 2'
-                    writeFile file: 'petclinic-deployment.yaml', text: '''
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: petclinic
-spec:
-  replicas: 2  # <--- ¡AQUÍ ESTÁ EL CAMBIO QUE QUEREMOS VER!
-  selector:
-    matchLabels:
-      app: petclinic
-  template:
-    metadata:
-      labels:
-        app: petclinic
-    spec:
-      containers:
-      - name: petclinic
-        image: docker.io/library/petclinic-monolito:latest
-        imagePullPolicy: Never
-        ports:
-        - containerPort: 8080
-        env:
-        - name: SPRING_PROFILES_ACTIVE
-          value: "mysql"
-        - name: SPRING_DATASOURCE_URL
-          value: "jdbc:mysql://mysql-db:3306/petclinic"
-        - name: SPRING_DATASOURCE_USERNAME
-          value: "petclinic"
-        - name: SPRING_DATASOURCE_PASSWORD
-          value: "petclinic"
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: petclinic-service
-spec:
-  type: NodePort
-  selector:
-    app: petclinic
-  ports:
-  - port: 80
-    targetPort: 8080
-    nodePort: 30080
-'''
-
-                    // Aplicamos
+                    
+                    echo "🚀 Aplicando cambios..."
+                    sh "./kubectl apply -f mysql-deployment.yaml"
                     sh "./kubectl apply -f petclinic-deployment.yaml"
-
-                    // Verificamos
-                    sh "./kubectl get pods -l app=petclinic"
+                    sh "./kubectl apply -f vets-deployment.yaml"
+                    sh "./kubectl apply -f petclinic-ingress.yaml"
+                    
+                    echo "🔄 FORZANDO REINICIO DE PODS..."
+                    // Este comando OBLIGA a crear pods nuevos, poniendo el contador AGE a 0m
+                    sh "./kubectl rollout restart deployment/petclinic"
+                    sh "./kubectl rollout restart deployment/vets-service"
+                    
+                    echo "✅ Esperando a que el rollout termine..."
+                    // Esperamos a que el reinicio se complete antes de marcar éxito
+                    sh "./kubectl rollout status deployment/petclinic --timeout=5m"
                 }
             }
         }
     }
-
+    
     post {
-        success { echo '✅ Despliegue completado.' }
+        success {
+            echo '✅ FASE 2 COMPLETADA: Pods reiniciados exitosamente.'
+        }
     }
 }
